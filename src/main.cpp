@@ -25,7 +25,6 @@ void setup() {
 
 
 void loop() {
-    long mills = millis();
     M5Dial.update();
     int16_t newPosition =int16_t(M5Dial.Encoder.read());
     if (newPosition != oldPosition) {
