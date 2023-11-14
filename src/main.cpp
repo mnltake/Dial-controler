@@ -45,17 +45,7 @@ void loop() {
 
         // 変化量がしきい値を超えていれば値を変更
         if (abs(encoderDelta) > 0) {
-            // if (abs(encoderDelta) >= 10){
-            //     encoderDelta *= 10;
-            // }else if(abs(encoderDelta) >= 3){
-            //     encoderDelta *= 5;
-            // }else if(abs(encoderDelta) >= 2){
-            //     encoderDelta *= 2;
-            // }
             newPosition = oldPosition + (encoderDelta*abs(encoderDelta));
-            oldEncoderValue = newEncoderValue;
-            oldPosition = newPosition;
-            lastEncoderUpdateTime = currentTime;
             M5Dial.Speaker.tone(8000, 20);
             M5Dial.Display.clear();
             oldPosition = newPosition;
@@ -63,8 +53,11 @@ void loop() {
             M5Dial.Display.drawString(String(newPosition),
                                   M5Dial.Display.width() / 2,
                                   M5Dial.Display.height() / 2);
+            oldEncoderValue = newEncoderValue;
+            oldPosition = newPosition;
+            lastEncoderUpdateTime = currentTime;
         }
-        
+        lastEncoderUpdateTime = currentTime;
     }
 
 
