@@ -7,7 +7,7 @@
 // Global copy of slave
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 esp_now_peer_info_t peerInfo;
-uint8_t data[3];
+uint8_t data[]  = {0,0,0};
 int16_t oldPosition = 2000;
 
 void InitESPNow();
@@ -87,20 +87,38 @@ void loop() {
                                   M5Dial.Display.height() / 2);
         data[0] =  (uint8_t)(newPosition&0xff);
         data[1] = (uint8_t)((newPosition >> 8) & 0xFF);
-        data[2] = 0x00;
+        // data[2] = 0x00;
   
         const uint8_t *peer_addr = peerInfo.peer_addr;
-        Serial.print("Sending: "); Serial.printf("%02x %02x  \n",data[0],data[1]);
+        Serial.print("Sending: "); Serial.printf("%02x %02x %02x  \n",data[0],data[1],data[2]);
         esp_err_t result = esp_now_send(peer_addr, data, sizeof(&data));
     }
-    if (M5Dial.BtnA.wasClicked()) {
-        M5Dial.Encoder.readAndReset();
-    }
-    if (M5Dial.BtnA.pressedFor(2000)) {
+    // if (M5Dial.BtnA.wasClicked()) {
+    //     M5Dial.Encoder.readAndReset();
+    // }
+    if (M5Dial.BtnA.wasHold()) {
         // M5Dial.Encoder.readAndReset();
-        data[2] = 0xff;
+        // oldPosition = 0;
+        data[2] ++;
         const uint8_t *peer_addr = peerInfo.peer_addr;
-        Serial.print("Sending: "); Serial.printf("%02x %02x  \n",data[0],data[1]);
+        Serial.print("Sending: "); Serial.printf("%02x %02x %02x  \n",data[0],data[1],data[2]);
         esp_err_t result = esp_now_send(peer_addr, data, sizeof(&data));
+        if (data[2] % 2 ==0){
+          M5Dial.Speaker.tone(5000, 200);
+          M5Dial.Display.clear();
+          M5Dial.Display.setTextColor(GREEN);
+          M5Dial.Display.drawString("MOVE",
+              M5Dial.Display.width() / 2,
+              M5Dial.Display.height() / 2);
+        }else
+        {
+          M5Dial.Speaker.tone(5000, 200);
+          M5Dial.Display.clear();
+          M5Dial.Display.setTextColor(RED);
+          M5Dial.Display.drawString("FREE",
+                        M5Dial.Display.width() / 2,
+                        M5Dial.Display.height() / 2);
+        }
+        
     }
 }
