@@ -97,6 +97,7 @@ void loop() {
         M5Dial.Encoder.readAndReset();
     }
     if (M5Dial.BtnA.pressedFor(2000)) {
+        // M5Dial.Encoder.readAndReset();
         data[2] = 0xff;
         const uint8_t *peer_addr = peerInfo.peer_addr;
         Serial.print("Sending: "); Serial.printf("%02x %02x  \n",data[0],data[1]);
