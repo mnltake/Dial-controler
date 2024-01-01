@@ -1,28 +1,15 @@
-/**
- * @file encoder.ino
- * @author SeanKwok (shaoxiang@m5stack.com)
- * @brief M5Dial Encoder Test
- * @version 0.2
- * @date 2023-10-18
- *
- *
- * @Hardwares: M5Dial
- * @Platform Version: Arduino M5Stack Board Manager v2.0.7
- * @Dependent Library:
- * M5GFX: https://github.com/m5stack/M5GFX
- * M5Unified: https://github.com/m5stack/M5Unified
- */
 #include "Arduino.h"
 #include "M5Dial.h"
 #include <esp_now.h>
 #include <WiFi.h>
 #include <esp_wifi.h> 
+#define CHANNEL 1
 // Global copy of slave
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 esp_now_peer_info_t peerInfo;
-#define CHANNEL 1
-#define PRINTSCANRESULTS 0
-#define DELETEBEFOREPAIR 0
+uint8_t data[3];
+int16_t oldPosition = 2000;
+
 void InitESPNow();
 void deletePeer();
 void ScanForSlave(); 
@@ -45,32 +32,6 @@ void InitESPNow() {
   }
 }
 
-uint8_t data[2];
-// send data
-void sendData() {
-  data[0]++;
-  const uint8_t *peer_addr = peerInfo.peer_addr;
-  Serial.print("Sending: ");
-  esp_err_t result = esp_now_send(peer_addr, data, sizeof(&data));
-  Serial.print("Send Status: ");
-  if (result == ESP_OK) {
-    Serial.println("Success");
-  } else if (result == ESP_ERR_ESPNOW_NOT_INIT) {
-    // How did we get so far!!
-    Serial.println("ESPNOW not Init.");
-  } else if (result == ESP_ERR_ESPNOW_ARG) {
-    Serial.println("Invalid Argument");
-  } else if (result == ESP_ERR_ESPNOW_INTERNAL) {
-    Serial.println("Internal Error");
-  } else if (result == ESP_ERR_ESPNOW_NO_MEM) {
-    Serial.println("ESP_ERR_ESPNOW_NO_MEM");
-  } else if (result == ESP_ERR_ESPNOW_NOT_FOUND) {
-    Serial.println("Peer not found.");
-  } else {
-    Serial.println("Not sure what happened");
-  }
-}
-
 // callback when data is sent from Master to Slave
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   char macStr[18];
@@ -90,7 +51,7 @@ void setup() {
       //Set device in STA mode to begin with
     WiFi.mode(WIFI_STA);
     esp_wifi_set_channel(CHANNEL, WIFI_SECOND_CHAN_NONE);
-    Serial.println("ESPNow/Basic/Master Example");
+    Serial.println("ESPNow Master");
     // This is the mac address of the Master in Station Mode
     Serial.print("STA MAC: "); Serial.println(WiFi.macAddress());
     Serial.print("STA CHANNEL "); Serial.println(WiFi.channel());
@@ -98,7 +59,7 @@ void setup() {
     InitESPNow();
         // Register peer
     memcpy(peerInfo.peer_addr, broadcastAddress, 6);
-    peerInfo.channel = 1;  
+    peerInfo.channel = CHANNEL;  
     peerInfo.encrypt = false;
     
     // Add peer        
@@ -111,7 +72,7 @@ void setup() {
     esp_now_register_send_cb(OnDataSent);
 }
 
-int16_t oldPosition = 2000;
+
 
 void loop() {
     M5Dial.update();
@@ -126,15 +87,19 @@ void loop() {
                                   M5Dial.Display.height() / 2);
         data[0] =  (uint8_t)(newPosition&0xff);
         data[1] = (uint8_t)((newPosition >> 8) & 0xFF);
+        data[2] = 0x00;
   
         const uint8_t *peer_addr = peerInfo.peer_addr;
         Serial.print("Sending: "); Serial.printf("%02x %02x  \n",data[0],data[1]);
         esp_err_t result = esp_now_send(peer_addr, data, sizeof(&data));
     }
-    if (M5Dial.BtnA.wasPressed()) {
+    if (M5Dial.BtnA.wasClicked()) {
         M5Dial.Encoder.readAndReset();
     }
-    if (M5Dial.BtnA.pressedFor(5000)) {
-        M5Dial.Encoder.write(100);
+    if (M5Dial.BtnA.pressedFor(2000)) {
+        data[2] = 0xff;
+        const uint8_t *peer_addr = peerInfo.peer_addr;
+        Serial.print("Sending: "); Serial.printf("%02x %02x  \n",data[0],data[1]);
+        esp_err_t result = esp_now_send(peer_addr, data, sizeof(&data));
     }
 }
