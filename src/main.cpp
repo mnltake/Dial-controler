@@ -1,20 +1,85 @@
-#include <Arduino.h>
-#include "Wire.h"
-
-#define I2C_DEV_ADDR 0x55
+/**
+ * @file encoder.ino
+ * @author SeanKwok (shaoxiang@m5stack.com)
+ * @brief M5Dial Encoder Test
+ * @version 0.2
+ * @date 2023-10-18
+ *
+ *
+ * @Hardwares: M5Dial
+ * @Platform Version: Arduino M5Stack Board Manager v2.0.7
+ * @Dependent Library:
+ * M5GFX: https://github.com/m5stack/M5GFX
+ * M5Unified: https://github.com/m5stack/M5Unified
+ */
+#include "Arduino.h"
 #include "M5Dial.h"
-// #include "USB.h"
-// #include "USBHIDKeyboard.h"
-// USBHIDKeyboard Keyboard;
+#include <esp_now.h>
+#include <WiFi.h>
+#include <esp_wifi.h> 
+// Global copy of slave
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+esp_now_peer_info_t peerInfo;
+#define CHANNEL 1
+#define PRINTSCANRESULTS 0
+#define DELETEBEFOREPAIR 0
+void InitESPNow();
+void deletePeer();
+void ScanForSlave(); 
+bool manageSlave();
+void sendData();
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 
+// Init ESP Now with fallback
+void InitESPNow() {
+  WiFi.disconnect();
+  if (esp_now_init() == ESP_OK) {
+    Serial.println("ESPNow Init Success");
+  }
+  else {
+    Serial.println("ESPNow Init Failed");
+    // Retry InitESPNow, add a counte and then restart?
+    // InitESPNow();
+    // or Simply Restart
+    ESP.restart();
+  }
+}
 
-long oldPosition = 0;
-unsigned long lastEncoderUpdateTime = 0;
-int16_t oldEncoderValue = 0;
-int16_t newEncoderValue = 0;
-int16_t newPosition = 0;
-int16_t encoderDelta = 0;
-int16_t encoderChangeThreshold = 5; // 変化量のしきい値
+uint8_t data[2];
+// send data
+void sendData() {
+  data[0]++;
+  const uint8_t *peer_addr = peerInfo.peer_addr;
+  Serial.print("Sending: ");
+  esp_err_t result = esp_now_send(peer_addr, data, sizeof(&data));
+  Serial.print("Send Status: ");
+  if (result == ESP_OK) {
+    Serial.println("Success");
+  } else if (result == ESP_ERR_ESPNOW_NOT_INIT) {
+    // How did we get so far!!
+    Serial.println("ESPNOW not Init.");
+  } else if (result == ESP_ERR_ESPNOW_ARG) {
+    Serial.println("Invalid Argument");
+  } else if (result == ESP_ERR_ESPNOW_INTERNAL) {
+    Serial.println("Internal Error");
+  } else if (result == ESP_ERR_ESPNOW_NO_MEM) {
+    Serial.println("ESP_ERR_ESPNOW_NO_MEM");
+  } else if (result == ESP_ERR_ESPNOW_NOT_FOUND) {
+    Serial.println("Peer not found.");
+  } else {
+    Serial.println("Not sure what happened");
+  }
+}
+
+// callback when data is sent from Master to Slave
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+  Serial.print("Last Packet Sent to: "); Serial.println(macStr);
+  Serial.print("Last Packet Send Status: "); Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
 void setup() {
     auto cfg = M5.config();
     M5Dial.begin(cfg, true, false);
@@ -22,61 +87,54 @@ void setup() {
     M5Dial.Display.setTextDatum(middle_center);
     M5Dial.Display.setTextFont(&fonts::Orbitron_Light_32);
     M5Dial.Display.setTextSize(2);
-    Wire.begin(13,15,100000);
-      //Write message to the slave
-
-    // Keyboard.begin();
-    // USB.begin();
+      //Set device in STA mode to begin with
+    WiFi.mode(WIFI_STA);
+    esp_wifi_set_channel(CHANNEL, WIFI_SECOND_CHAN_NONE);
+    Serial.println("ESPNow/Basic/Master Example");
+    // This is the mac address of the Master in Station Mode
+    Serial.print("STA MAC: "); Serial.println(WiFi.macAddress());
+    Serial.print("STA CHANNEL "); Serial.println(WiFi.channel());
+    // Init ESPNow with a fallback logic
+    InitESPNow();
+        // Register peer
+    memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+    peerInfo.channel = 1;  
+    peerInfo.encrypt = false;
+    
+    // Add peer        
+    if (esp_now_add_peer(&peerInfo) != ESP_OK){
+      Serial.println("Failed to add peer");
+      return;
+    }
+    // Once ESPNow is successfully Init, we will register for Send CB to
+    // get the status of Trasnmitted packet
+    esp_now_register_send_cb(OnDataSent);
 }
 
+int16_t oldPosition = 2000;
 
 void loop() {
     M5Dial.update();
-    // エンコーダーの値を読み取り
-    newEncoderValue = int16_t(M5Dial.Encoder.read());
-
-    // エンコーダーの変化を時間で追跡
-    unsigned long currentTime = millis();
-    unsigned long deltaTime = currentTime - lastEncoderUpdateTime;
-
-    if (deltaTime >= 50) { // 50ミリ秒ごとに計算
-        // エンコーダーの変化量を計算
-        encoderDelta =     newEncoderValue - oldEncoderValue;
-
-        // 変化量がしきい値を超えていれば値を変更
-        if (abs(encoderDelta) > 0) {
-            newPosition = oldPosition + (encoderDelta*abs(encoderDelta));
-            M5Dial.Speaker.tone(8000, 20);
-            M5Dial.Display.clear();
-            oldPosition = newPosition;
-            // Serial.println(newPosition);
-            M5Dial.Display.drawString(String(newPosition),
+    int16_t newPosition = M5Dial.Encoder.read();
+    if (newPosition != oldPosition) {
+        M5Dial.Speaker.tone(8000, 20);
+        M5Dial.Display.clear();
+        oldPosition = newPosition;
+        Serial.println(newPosition);
+        M5Dial.Display.drawString(String(newPosition),
                                   M5Dial.Display.width() / 2,
                                   M5Dial.Display.height() / 2);
-            oldEncoderValue = newEncoderValue;
-            oldPosition = newPosition;
-            lastEncoderUpdateTime = currentTime;
-        }
-        lastEncoderUpdateTime = currentTime;
+        data[0] =  (uint8_t)(newPosition&0xff);
+        data[1] = (uint8_t)((newPosition >> 8) & 0xFF);
+  
+        const uint8_t *peer_addr = peerInfo.peer_addr;
+        Serial.print("Sending: "); Serial.printf("%02x %02x  \n",data[0],data[1]);
+        esp_err_t result = esp_now_send(peer_addr, data, sizeof(&data));
     }
-
-
-
-
     if (M5Dial.BtnA.wasPressed()) {
-        Serial.println(newPosition);
-        Wire.beginTransmission(I2C_DEV_ADDR);
-        delay(100);
-        Wire.write(newPosition>>8);
-        Wire.write(newPosition&0xff);
-        uint8_t error = Wire.endTransmission(true);
-        Serial.printf("endTransmission: %u\n", error);
+        M5Dial.Encoder.readAndReset();
     }
     if (M5Dial.BtnA.pressedFor(5000)) {
-        M5Dial.Encoder.readAndReset(); 
-        oldEncoderValue = 0;
-        oldPosition =0;
-        lastEncoderUpdateTime = currentTime;
-        delay(100);
+        M5Dial.Encoder.write(100);
     }
 }
